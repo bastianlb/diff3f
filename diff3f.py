@@ -2,16 +2,19 @@ import torch
 from PIL import Image
 from torchvision.utils import make_grid
 import numpy as np
-from diffusion import add_texture_to_render
-from dino import get_dino_features
-from render import batch_render
 from pytorch3d.ops import ball_query
 from tqdm import tqdm
 from time import time
 import random
+import os
+from PIL import Image
+import imageio
+
+from diff3f.diffusion import add_texture_to_render
+from diff3f.dino import get_dino_features
+from diff3f.render import batch_render
 
 
-FEATURE_DIMS = 1280+768 # diffusion unet + dino
 VERTEX_GPU_LIMIT = 35000
 
 
@@ -75,7 +78,12 @@ def get_features_per_vertex(
     return_image=True,
     bq=True,
     prompts_list=None,
+    only_dino=False,
 ):
+    if not only_dino:
+        FEATURE_DIMS = 1280+768 # diffusion unet + dino
+    else:
+        FEATURE_DIMS = 768 # diffusion unet + dino
     t1 = time()
     if mesh_vertices is None:
         mesh_vertices = mesh.verts_list()[0]
@@ -101,6 +109,7 @@ def get_features_per_vertex(
     torch.cuda.empty_cache()
     ft_per_vertex = torch.zeros((len(mesh_vertices), FEATURE_DIMS)).half()  # .to(device)
     ft_per_vertex_count = torch.zeros((len(mesh_vertices), 1)).half()  # .to(device)
+    
     for idx in tqdm(range(len(batched_renderings))):
         dp = depth[idx].flatten().unsqueeze(1)
         xy_depth = torch.cat((pixel_coords, dp), dim=1)
@@ -114,6 +123,9 @@ def get_features_per_vertex(
         diffusion_input_img = (
             batched_renderings[idx, :, :, :3].cpu().numpy() * 255
         ).astype(np.uint8)
+        
+        # print('diffusion_input_img', diffusion_input_img.shape)
+        
         if use_normal_map:
             normal_map_input = normal_batched_renderings[idx]
         depth_map = depth[idx, :, :, 0].unsqueeze(0).to(device)
@@ -129,9 +141,33 @@ def get_features_per_vertex(
             num_images_per_prompt=num_images_per_prompt,
             return_image=return_image
         )
+        
+        # If we want to visualize the intermediate img results, use the following codes:
+        
+        # img_tensor = diffusion_output[1][0]
+        
+        ## ensure the type here
+        # if isinstance(img_tensor, Image.Image):
+        #     img_tensor = np.array(img_tensor)
+
+        # if torch.is_tensor(img_tensor):
+        #     img_tensor = img_tensor.cpu().numpy()
+
+        # if img_tensor.dtype != np.uint8:
+        #     img_tensor = (img_tensor * 255).astype(np.uint8)
+
+        # img = Image.fromarray(img_tensor)
+        # img_path = os.path.join(base_dir, f"textureimage_{idx}.png")
+        # diffusion_input_img = Image.fromarray(diffusion_input_img)
+        # diffusion_input_img.save(os.path.join(base_dir, f"original_{idx}.png"))
+        # img.save(img_path)
+        # print(f"Image saved to {img_path}")
+        
         aligned_dino_features = get_dino_features(device, dino_model, diffusion_output[1][0], grid)
+        # print('aligned_dino_features', aligned_dino_features[0, :, indices].shape)
         aligned_features = None
         with torch.no_grad():
+            # print('diffusion_output[0].unsqueeze(0)', diffusion_output[0].shape)
             ft = torch.nn.Upsample(size=(H,W), mode="bilinear")(diffusion_output[0].unsqueeze(0)).to(device)
             ft_dim = ft.size(1)
             aligned_features = torch.nn.functional.grid_sample(
@@ -139,7 +175,12 @@ def get_features_per_vertex(
             ).reshape(1, ft_dim, -1)
             aligned_features = torch.nn.functional.normalize(aligned_features, dim=1)
         # this is feature per pixel in the grid
-        aligned_features = torch.hstack([aligned_features*0.5, aligned_dino_features*0.5])
+        if only_dino:
+            aligned_features = aligned_dino_features
+        else:
+            # print('aligned_features',aligned_features.shape)
+            # print('aligned_features',aligned_features[0, :, indices].shape)
+            aligned_features = torch.hstack([aligned_features*0.5, aligned_dino_features*0.5])
         features_per_pixel = aligned_features[0, :, indices].cpu()
         # map pixel to vertex on mesh
         if bq:
@@ -154,9 +195,13 @@ def get_features_per_vertex(
                 .idx[0]
                 .cpu()
             )
+            # print(queried_indices.shape) # torch.Size([13523, 100])
             mask = queried_indices != -1
             repeat = mask.sum(dim=1)
             ft_per_vertex_count[queried_indices[mask]] += 1
+            # print(queried_indices[mask].shape) # torch.Size([9042])
+            # print(features_per_pixel.shape) # torch.Size([768, 13523])
+            # print(repeat) # tensor([21, 19, 20,  ...,  4,  3,  3])
             ft_per_vertex[queried_indices[mask]] += features_per_pixel.repeat_interleave(
                 repeat, dim=1
             ).T

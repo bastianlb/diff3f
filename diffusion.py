@@ -2,13 +2,14 @@ import torch
 from PIL import Image
 import numpy as np
 from diffusers import ControlNetModel
-from unet_2d_condition import UNet2DConditionModel
-from pipeline_controlnet_img2img import StableDiffusionControlNetImg2ImgPipeline
 from diffusers import DDIMScheduler
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 import cv2
 from torchvision import transforms
+
+from diff3f.unet_2d_condition import UNet2DConditionModel
+from diff3f.pipeline_controlnet_img2img import StableDiffusionControlNetImg2ImgPipeline
 
 
 DIFFUSION_MODEL_ID = "runwayml/stable-diffusion-v1-5"

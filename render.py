@@ -3,10 +3,11 @@ from pytorch3d.renderer.mesh.rasterizer import RasterizationSettings, MeshRaster
 from pytorch3d.renderer.mesh.shader import HardPhongShader
 from pytorch3d.renderer import MeshRenderer
 from pytorch3d.renderer.lighting import PointLights
-from normal_shading import HardPhongNormalShader
 import torch
 import math
 import time
+
+from diff3f.normal_shading import HardPhongNormalShader
 
 
 @torch.no_grad()
@@ -16,7 +17,7 @@ def run_rendering(device, mesh, mesh_vertices, num_views, H, W, add_angle_azi=0,
     bbox_max = bbox.max(dim=-1).values[0]
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
-    scaling_factor = 0.65
+    scaling_factor = 0.75
     distance = torch.sqrt((bb_diff * bb_diff).sum())
     distance *= scaling_factor
     steps = int(math.sqrt(num_views))

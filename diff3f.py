@@ -79,6 +79,7 @@ def get_features_per_vertex(
     bq=True,
     prompts_list=None,
     only_dino=False,
+    fill_missing=False,
 ):
     if not only_dino:
         FEATURE_DIMS = 1280+768 # diffusion unet + dino
@@ -219,7 +220,7 @@ def get_features_per_vertex(
     print("Number of missing features: ", missing_features)
     print("Copied features from nearest vertices")
 
-    if missing_features > 0:
+    if fill_missing and missing_features > 0:
         filled_indices = ft_per_vertex_count[:, 0] != 0
         missing_indices = ft_per_vertex_count[:, 0] == 0
         distances = torch.cdist(
@@ -229,6 +230,8 @@ def get_features_per_vertex(
         ft_per_vertex[missing_indices, :] = ft_per_vertex[filled_indices][
             closest_vertex_indices, :
         ]
+    else:
+        print("Ignoring {} missing features".format(missing_features))
     t2 = time() - t1
     t2 = t2 / 60
     print("Time taken in mins: ", t2)
